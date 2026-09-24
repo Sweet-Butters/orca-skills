@@ -8,10 +8,17 @@ if [ -z "$cwd" ]; then
   payload="$(cat 2>/dev/null || true)"
   if [ -n "$payload" ]; then
     # The payload is passed as an argument, not on stdin, so nothing competes for it.
-    # A malformed payload still yields a path: parsing failures fall back to a regex
-    # rather than silently leaving the hook with nothing to report.
+    # stdout is forced to UTF-8: the default console encoding (cp949 on a Korean Windows)
+    # mangles a non-ASCII path on its way out of this subshell, and the mangled path then
+    # fails every directory test - the hook would stay silent for any repo under a home
+    # directory whose name is not ASCII.
+    # A malformed payload still yields a path: parsing failures fall back to a regex.
     cwd="$(python - "$payload" <<'PY' 2>/dev/null || true
 import json, re, sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 raw = sys.argv[1] if len(sys.argv) > 1 else ""
 cwd = ""
 try:
@@ -30,11 +37,13 @@ fi
 
 # On Windows the payload carries a native path (D:\repo\name). Bash tests and cd need a
 # POSIX one, so convert before touching the filesystem - otherwise every check fails and
-# the hook stays silent in exactly the case it exists for.
+# the hook stays silent in exactly the case it exists for. Keep the original if the
+# conversion yields nothing.
 case "$cwd" in
   *\\*|[A-Za-z]:*)
     if command -v cygpath >/dev/null 2>&1; then
-      cwd="$(cygpath -u "$cwd" 2>/dev/null || printf '%s' "$cwd")"
+      converted="$(cygpath -u "$cwd" 2>/dev/null || true)"
+      [ -n "$converted" ] && cwd="$converted"
     else
       cwd="$(printf '%s' "$cwd" | sed -e 's|\\|/|g' -e 's|^\([A-Za-z]\):|/\L\1|')"
     fi
