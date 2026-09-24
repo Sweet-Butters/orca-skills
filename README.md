@@ -12,6 +12,7 @@ Each skill is one folder with `SKILL.md` (English, the file the tooling loads) a
 
 | Skill | What it is for |
 |---|---|
+| [`project-board`](skills/project-board/SKILL.md) | Set up and keep a status board (`docs/progress.md` + `docs/state/active-work.json` + rules) so any machine or session can pick the work up |
 | [`pr-loop`](skills/pr-loop/SKILL.md) | Land a change on a shared branch: temp worktree, asserted patches, PR, wait for mergeability, merge, clean up — status files updated in the same commit |
 | [`verify-visual`](skills/verify-visual/SKILL.md) | Prove a PDF, poster or slide is right by measuring it — region ink comparison, print-margin check, then one look |
 | [`print-panel`](skills/print-panel/SKILL.md) | Print-ready A2/A3 poster or panel from HTML, plus an editable PPTX, logo slots, and a QR that survives a reprint |
@@ -24,7 +25,7 @@ Each skill is one folder with `SKILL.md` (English, the file the tooling loads) a
 | [`worklog`](skills/worklog/SKILL.md) | Write the day up from the Stop-hook records: what the user did, what the AI did |
 
 `start`, `close`, `verify` and `worklog` assume Orca worktrees and a worklog Stop hook.
-The other six are plain Claude Code skills and work anywhere.
+The rest are plain Claude Code skills and work anywhere.
 
 ## Install (all projects)
 
@@ -49,6 +50,61 @@ To update later: `git pull` and run the installer again.
 If you use the community skills CLI, `npx skills add Sweet-Butters/orca-skills --skill
 <name> --global` installs a single skill instead.
 
+## Making it automatic
+
+Skills load when what you ask matches their description — they do not run on their own.
+Two hooks close that gap.
+
+### 1. Show the board at the start of every session
+
+Copy `hooks/board-status.sh` (or `.ps1` where there is no Git Bash) into `~/.claude/hooks/`
+and add a **SessionStart** hook in `~/.claude/settings.json`. Append to the array; never
+replace an entry another tool put there:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Program Files/Git/bin/bash.exe",
+            "args": ["C:/Users/<you>/.claude/hooks/board-status.sh"],
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook prints the board's state — updated time, stage, active tasks, open decisions — and
+SessionStart stdout becomes context the session can see. In a repo with no board it prints
+one line telling you how to create one; outside a repo it says nothing.
+
+The `args` exec form spawns the program directly, with no shell parsing the path — worth
+keeping when a home directory holds non-ASCII characters.
+
+`board-status.ps1` is the fallback for machines without Git Bash. It reads
+`CLAUDE_PROJECT_DIR` instead of the hook payload, because reading stdin under
+`powershell.exe -File` can block and hang the session start.
+
+### 2. Create the board for every new project
+
+Point Orca's per-repo setup script at the bootstrap:
+
+**Orca → Settings → the repo → Hooks / Setup script**
+
+```bash
+bash "$HOME/.claude/skills/project-board/bootstrap-board.sh"
+```
+
+Orca runs it when a worktree is created (`setupRunPolicy: run-by-default`), so a new
+project starts with `CLAUDE.md`, `docs/progress.md` and `docs/state/active-work.json`
+already in place. The script never overwrites files that exist.
+
 ## On another computer
 
 ```bash
@@ -56,7 +112,7 @@ git clone https://github.com/Sweet-Butters/orca-skills.git && cd orca-skills && 
 ```
 
 That is the whole setup. The skills are text; nothing here depends on a machine, a
-project or an API key.
+project or an API key. Wire the two hooks again if you want the automatic behaviour.
 
 ## Writing your own
 
